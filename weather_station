@@ -1,0 +1,37 @@
+import serial
+import time
+import glob
+
+# Arduino serial
+ser = serial.Serial('/dev/ttyUSB0', 9600)
+
+# DS18B20 temp sensor
+device_folder = glob.glob('/sys/bus/w1/devices/28-06201884371b/w1_slave')[0]
+device_file = device_folder + '/w1_slave'
+
+def read_temp():
+    with open(device_file, 'r') as f:
+        lines = f.readlines()
+    while lines[0].strip()[-3:] != 'YES':
+        time.sleep(0.2)
+        with open(device_file, 'r') as f:
+            lines = f.readlines()
+    equals_pos = lines[1].find('t=')
+    temp_c = float(lines[1][equals_pos+2:]) / 1000.0
+    return temp_c
+
+# Loop: read both
+while True:
+    try:
+        # wind from Arduino
+        line = ser.readline().decode().strip()
+        wind = float(line) if line else None
+
+        # temp from DS18B20
+        temp_c = read_temp()
+
+        if wind is not None:
+            print(f"Wind: {wind:.2f} m/s | Temp: {temp_c:.1f} °C")
+
+    except Exception as e:
+        print("Error:", e)
