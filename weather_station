@@ -1,37 +1,67 @@
 import serial
 import time
-import glob
+import json
+import paho.mqtt.client as mqtt
 
-# Arduino serial
-ser = serial.Serial('/dev/ttyUSB0', 9600)
+# --- Wind sensor (USB serial) ---
+ser = serial.Serial('/dev/ttyACM0', baudrate=9600, timeout=1)
 
-# DS18B20 temp sensor
-device_folder = glob.glob('/sys/bus/w1/devices/28-06201884371b/w1_slave')[0]
-device_file = device_folder + '/w1_slave'
+# --- Temp sensor (DS18B20 with your ID) ---
+device_file = '/sys/bus/w1/devices/28-06201884371b/w1_slave'
 
 def read_temp():
+    """Read temperature in °C from DS18B20"""
     with open(device_file, 'r') as f:
         lines = f.readlines()
-    while lines[0].strip()[-3:] != 'YES':
-        time.sleep(0.2)
-        with open(device_file, 'r') as f:
-            lines = f.readlines()
+    if lines[0].strip()[-3:] != 'YES':
+        return None
     equals_pos = lines[1].find('t=')
-    temp_c = float(lines[1][equals_pos+2:]) / 1000.0
-    return temp_c
+    if equals_pos != -1:
+        temp_string = lines[1][equals_pos+2:]
+        return float(temp_string) / 1000.0
+    return None
 
-# Loop: read both
+# --- MQTT setup ---
+BROKER = "localhost"   # or IP of your broker
+PORT = 1883
+TOPIC = "sensors/weather"
+
+client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+client.connect(BROKER, PORT, 60)
+
+print("Reading wind + temperature... publishing to MQTT and console")
+
 while True:
     try:
-        # wind from Arduino
-        line = ser.readline().decode().strip()
-        wind = float(line) if line else None
+        # --- Wind ---
+        wind_line = ser.readline().decode('utf-8', errors='ignore').strip()
+        wind_value = None
+        if wind_line:
+            try:
+                wind_value = float(wind_line)
+            except ValueError:
+                print("Raw wind data (not numeric):", wind_line)
 
-        # temp from DS18B20
-        temp_c = read_temp()
+        # --- Temp ---
+        temp_value = read_temp()
 
-        if wind is not None:
-            print(f"Wind: {wind:.2f} m/s | Temp: {temp_c:.1f} °C")
+        # --- Print and publish both ---
+        if wind_value is not None and temp_value is not None:
+            print(f"🌬️ Wind: {wind_value:.2f} m/s | 🌡️ Temp: {temp_value:.2f} °C")
+            payload = json.dumps({"wind": wind_value, "temp": temp_value})
+            client.publish(TOPIC, payload)
+        elif wind_value is not None:
+            print(f"🌬️ Wind: {wind_value:.2f} m/s | 🌡️ Temp: --")
+            payload = json.dumps({"wind": wind_value})
+            client.publish(TOPIC, payload)
+        elif temp_value is not None:
+            print(f"🌬️ Wind: -- | 🌡️ Temp: {temp_value:.2f} °C")
+            payload = json.dumps({"temp": temp_value})
+            client.publish(TOPIC, payload)
 
-    except Exception as e:
-        print("Error:", e)
+        time.sleep(2)
+
+    except KeyboardInterrupt:
+        print("\nStopped by user.")
+        break
+
