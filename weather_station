@@ -22,9 +22,9 @@ def read_temp():
     return None
 
 # --- MQTT setup ---
-BROKER = "localhost"   # or IP of your broker
+BROKER = "100.82.0.4"   # or IP of your broker
 PORT = 1883
-TOPIC = "sensors/weather"
+TOPIC = "Pi2"
 
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.connect(BROKER, PORT, 60)
